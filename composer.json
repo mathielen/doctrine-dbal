@@ -26,10 +26,10 @@
     },
     "bin": ["bin/doctrine-dbal"],
     "autoload": {
-        "psr-0": { "Doctrine\\DBAL\\": "lib/" }
+        "psr-0": { "Doctrine\\DBAL": "lib/" }
     },
     "autoload-dev": {
-        "psr-0": { "Doctrine\\Tests\\": "tests/" }
+        "psr-0": { "Doctrine\\Tests": "tests/" }
     },
     "extra": {
         "branch-alias": {
