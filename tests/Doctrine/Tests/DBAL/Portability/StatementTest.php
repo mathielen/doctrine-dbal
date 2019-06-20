@@ -25,7 +25,7 @@ class StatementTest extends \Doctrine\Tests\DbalTestCase
     /**
      * {@inheritdoc}
      */
-    public function setUp()
+    protected function setUp()
     {
         $this->wrappedStmt = $this->createWrappedStatement();
         $this->conn        = $this->createConnection();
@@ -188,6 +188,6 @@ class StatementTest extends \Doctrine\Tests\DbalTestCase
      */
     protected function createWrappedStatement()
     {
-        return $this->getMock('Doctrine\Tests\Mocks\DriverStatementMock');
+        return $this->createMock('Doctrine\Tests\Mocks\DriverStatementMock');
     }
 }

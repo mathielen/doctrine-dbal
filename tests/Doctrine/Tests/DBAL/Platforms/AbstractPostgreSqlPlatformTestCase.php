@@ -144,6 +144,63 @@ abstract class AbstractPostgreSqlPlatformTestCase extends AbstractPlatformTestCa
         $this->assertEquals(array('CREATE TABLE autoinc_table (id SERIAL NOT NULL)'), $this->_platform->getCreateTableSQL($table));
     }
 
+    public static function serialTypes() : array
+    {
+        return [
+            ['integer', 'SERIAL'],
+            ['bigint', 'BIGSERIAL'],
+        ];
+    }
+
+    /**
+     * @dataProvider serialTypes
+     * @group 2906
+     */
+    public function testGenerateTableWithAutoincrementDoesNotSetDefault(string $type, string $definition) : void
+    {
+        $table  = new \Doctrine\DBAL\Schema\Table('autoinc_table_notnull');
+        $column = $table->addColumn('id', $type);
+        $column->setAutoIncrement(true);
+        $column->setNotNull(false);
+
+        $sql = $this->_platform->getCreateTableSQL($table);
+
+        self::assertEquals(["CREATE TABLE autoinc_table_notnull (id $definition)"], $sql);
+    }
+
+    /**
+     * @dataProvider serialTypes
+     * @group 2906
+     */
+    public function testCreateTableWithAutoincrementAndNotNullAddsConstraint(string $type, string $definition) : void
+    {
+        $table  = new \Doctrine\DBAL\Schema\Table('autoinc_table_notnull_enabled');
+        $column = $table->addColumn('id', $type);
+        $column->setAutoIncrement(true);
+        $column->setNotNull(true);
+
+        $sql = $this->_platform->getCreateTableSQL($table);
+
+        self::assertEquals(["CREATE TABLE autoinc_table_notnull_enabled (id $definition NOT NULL)"], $sql);
+    }
+
+    /**
+     * @dataProvider serialTypes
+     * @group 2906
+     */
+    public function testGetDefaultValueDeclarationSQLIgnoresTheDefaultKeyWhenTheFieldIsSerial(string $type) : void
+    {
+        $sql = $this->_platform->getDefaultValueDeclarationSQL(
+            [
+                'autoincrement' => true,
+                'type'          => Type::getType($type),
+                'default'       => 1,
+            ]
+        );
+
+        self::assertSame('', $sql);
+    }
+
     public function testGeneratesTypeDeclarationForIntegers()
     {
         $this->assertEquals(
@@ -225,6 +282,14 @@ abstract class AbstractPostgreSqlPlatformTestCase extends AbstractPlatformTestCa
     public function testSupportsSequences()
     {
         $this->assertTrue($this->_platform->supportsSequences());
+    }
+
+    /**
+     * {@inheritdoc}
+     */
+    protected function supportsCommentOnStatement()
+    {
+        return true;
     }
 
     public function testModifyLimitQuery()
@@ -669,6 +734,11 @@ abstract class AbstractPostgreSqlPlatformTestCase extends AbstractPlatformTestCa
         );
     }
 
+    protected function getQuotesDropForeignKeySQL()
+    {
+        return 'ALTER TABLE "table" DROP CONSTRAINT "select"';
+    }
+
     public function testGetNullCommentOnColumnSQL()
     {
         $this->assertEquals(
@@ -767,6 +837,14 @@ abstract class AbstractPostgreSqlPlatformTestCase extends AbstractPlatformTestCa
     /**
      * {@inheritdoc}
      */
+    protected function getQuotesReservedKeywordInTruncateTableSQL()
+    {
+        return 'TRUNCATE "select"';
+    }
+
+    /**
+     * {@inheritdoc}
+     */
     protected function getAlterStringToFixedStringSQL()
     {
         return array(
@@ -812,6 +890,90 @@ abstract class AbstractPostgreSqlPlatformTestCase extends AbstractPlatformTestCa
         $this->assertSame(
             "SELECT pg_terminate_backend(procpid) FROM pg_stat_activity WHERE datname = 'foo'",
             $this->_platform->getCloseActiveDatabaseConnectionsSQL('foo')
+        );
+    }
+
+    /**
+     * @group DBAL-2436
+     */
+    public function testQuotesTableNameInListTableForeignKeysSQL()
+    {
+        $this->assertContains("'Foo''Bar\\\\'", $this->_platform->getListTableForeignKeysSQL("Foo'Bar\\"), '', true);
+    }
+
+    /**
+     * @group DBAL-2436
+     */
+    public function testQuotesSchemaNameInListTableForeignKeysSQL()
+    {
+        $this->assertContains(
+            "'Foo''Bar\\\\'",
+            $this->_platform->getListTableForeignKeysSQL("Foo'Bar\\.baz_table"),
+            '',
+            true
+        );
+    }
+
+    /**
+     * @group DBAL-2436
+     */
+    public function testQuotesTableNameInListTableConstraintsSQL()
+    {
+        $this->assertContains("'Foo''Bar\\\\'", $this->_platform->getListTableConstraintsSQL("Foo'Bar\\"), '', true);
+    }
+
+    /**
+     * @group DBAL-2436
+     */
+    public function testQuotesTableNameInListTableIndexesSQL()
+    {
+        $this->assertContains("'Foo''Bar\\\\'", $this->_platform->getListTableIndexesSQL("Foo'Bar\\"), '', true);
+    }
+
+    /**
+     * @group DBAL-2436
+     */
+    public function testQuotesSchemaNameInListTableIndexesSQL()
+    {
+        $this->assertContains(
+            "'Foo''Bar\\\\'",
+            $this->_platform->getListTableIndexesSQL("Foo'Bar\\.baz_table"),
+            '',
+            true
+        );
+    }
+
+    /**
+     * @group DBAL-2436
+     */
+    public function testQuotesTableNameInListTableColumnsSQL()
+    {
+        $this->assertContains("'Foo''Bar\\\\'", $this->_platform->getListTableColumnsSQL("Foo'Bar\\"), '', true);
+    }
+
+    /**
+     * @group DBAL-2436
+     */
+    public function testQuotesSchemaNameInListTableColumnsSQL()
+    {
+        $this->assertContains(
+            "'Foo''Bar\\\\'",
+            $this->_platform->getListTableColumnsSQL("Foo'Bar\\.baz_table"),
+            '',
+            true
+        );
+    }
+
+    /**
+     * @group DBAL-2436
+     */
+    public function testQuotesDatabaseNameInCloseActiveDatabaseConnectionsSQL()
+    {
+        $this->assertContains(
+            "'Foo''Bar\\\\'",
+            $this->_platform->getCloseActiveDatabaseConnectionsSQL("Foo'Bar\\"),
+            '',
+            true
         );
     }
 }

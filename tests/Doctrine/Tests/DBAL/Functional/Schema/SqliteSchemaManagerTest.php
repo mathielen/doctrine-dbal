@@ -3,6 +3,7 @@
 namespace Doctrine\Tests\DBAL\Functional\Schema;
 
 use Doctrine\DBAL\Schema;
+use Doctrine\DBAL\Types\Type;
 
 class SqliteSchemaManagerTest extends SchemaManagerFunctionalTestCase
 {
@@ -72,7 +73,7 @@ class SqliteSchemaManagerTest extends SchemaManagerFunctionalTestCase
 
     public function testListForeignKeysFromExistingDatabase()
     {
-        $this->_conn->executeQuery(<<<EOS
+        $this->_conn->exec(<<<EOS
 CREATE TABLE user (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     page INTEGER CONSTRAINT FK_1 REFERENCES page (key) DEFERRABLE INITIALLY DEFERRED,
@@ -135,11 +136,15 @@ EOS
 
     public function testNonDefaultPKOrder()
     {
+        if ( ! extension_loaded('sqlite3')) {
+            $this->markTestSkipped('This test requires the SQLite3 extension.');
+        }
+
         $version = \SQLite3::version();
         if(version_compare($version['versionString'], '3.7.16', '<')) {
             $this->markTestSkipped('This version of sqlite doesn\'t return the order of the Primary Key.');
         }
-        $this->_conn->executeQuery(<<<EOS
+        $this->_conn->exec(<<<EOS
 CREATE TABLE non_default_pk_order (
     id INTEGER,
     other_id INTEGER,
@@ -154,6 +159,34 @@ EOS
 
         $this->assertArrayHasKey('primary', $tableIndexes, 'listTableIndexes() has to return a "primary" array key.');
         $this->assertEquals(array('other_id', 'id'), array_map('strtolower', $tableIndexes['primary']->getColumns()));
+    }
+
+    /**
+     * @group DBAL-1779
+     */
+    public function testListTableColumnsWithWhitespacesInTypeDeclarations()
+    {
+        $sql = <<<SQL
+CREATE TABLE dbal_1779 (
+    foo VARCHAR (64) ,
+    bar TEXT (100)
+)
+SQL;
+
+        $this->_conn->exec($sql);
+
+        $columns = $this->_sm->listTableColumns('dbal_1779');
+
+        $this->assertCount(2, $columns);
+
+        $this->assertArrayHasKey('foo', $columns);
+        $this->assertArrayHasKey('bar', $columns);
+
+        $this->assertSame(Type::getType(Type::STRING), $columns['foo']->getType());
+        $this->assertSame(Type::getType(Type::TEXT), $columns['bar']->getType());
+
+        $this->assertSame(64, $columns['foo']->getLength());
+        $this->assertSame(100, $columns['bar']->getLength());
     }
 
     /**

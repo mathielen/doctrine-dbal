@@ -5,12 +5,12 @@ namespace Doctrine\Tests;
 /**
  * Base testcase class for all dbal testcases.
  */
-class DbalTestCase extends DoctrineTestCase
+abstract class DbalTestCase extends \PHPUnit_Framework_TestCase
 {
 
     /**
      * Utility function to skip tests on specified platforms or drivers
-     * 
+     *
      * @param string|array $driverOrPlatformName    Or more driver or platform names
      * @param string $message Log message           Reason if any
      * @param bool $markIncomplete                  Mark as incomplete instead of skipped

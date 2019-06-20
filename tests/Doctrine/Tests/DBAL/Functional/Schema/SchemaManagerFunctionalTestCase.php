@@ -4,6 +4,7 @@ namespace Doctrine\Tests\DBAL\Functional\Schema;
 
 use Doctrine\Common\EventManager;
 use Doctrine\DBAL\Events;
+use Doctrine\DBAL\Platforms\OraclePlatform;
 use Doctrine\DBAL\Schema\Column;
 use Doctrine\DBAL\Schema\ColumnDiff;
 use Doctrine\DBAL\Schema\Comparator;
@@ -51,10 +52,19 @@ class SchemaManagerFunctionalTestCase extends \Doctrine\Tests\DbalFunctionalTest
 
         $this->_sm->dropAndCreateDatabase('test_drop_database');
 
-        $this->assertContains('test_drop_database', $this->_sm->listDatabases());
+        $knownDatabases = $this->_sm->listDatabases();
+        if ($this->_conn->getDatabasePlatform() instanceof OraclePlatform) {
+            $this->assertContains('TEST_DROP_DATABASE', $knownDatabases);
+        } else {
+            $this->assertContains('test_drop_database', $knownDatabases);
+        }
 
         $params = $this->_conn->getParams();
-        $params['dbname'] = 'test_drop_database';
+        if ($this->_conn->getDatabasePlatform() instanceof OraclePlatform) {
+            $params['user'] = 'test_drop_database';
+        } else {
+            $params['dbname'] = 'test_drop_database';
+        }
 
         $user = isset($params['user']) ? $params['user'] : null;
         $password = isset($params['password']) ? $params['password'] : null;
@@ -66,8 +76,6 @@ class SchemaManagerFunctionalTestCase extends \Doctrine\Tests\DbalFunctionalTest
         $this->_sm->dropDatabase('test_drop_database');
 
         $this->assertNotContains('test_drop_database', $this->_sm->listDatabases());
-
-        unset($connection);
     }
 
     /**
@@ -191,8 +199,10 @@ class SchemaManagerFunctionalTestCase extends \Doctrine\Tests\DbalFunctionalTest
         $this->_sm->dropAndCreateTable($table);
 
         $columns = $this->_sm->listTableColumns('list_table_columns');
+        $columnsKeys = array_keys($columns);
 
         $this->assertArrayHasKey('id', $columns);
+        $this->assertEquals(0, array_search('id', $columnsKeys));
         $this->assertEquals('id',   strtolower($columns['id']->getname()));
         $this->assertInstanceOf('Doctrine\DBAL\Types\IntegerType', $columns['id']->gettype());
         $this->assertEquals(false,  $columns['id']->getunsigned());
@@ -201,6 +211,7 @@ class SchemaManagerFunctionalTestCase extends \Doctrine\Tests\DbalFunctionalTest
         $this->assertInternalType('array',  $columns['id']->getPlatformOptions());
 
         $this->assertArrayHasKey('test', $columns);
+        $this->assertEquals(1, array_search('test', $columnsKeys));
         $this->assertEquals('test', strtolower($columns['test']->getname()));
         $this->assertInstanceOf('Doctrine\DBAL\Types\StringType', $columns['test']->gettype());
         $this->assertEquals(255,    $columns['test']->getlength());
@@ -210,6 +221,7 @@ class SchemaManagerFunctionalTestCase extends \Doctrine\Tests\DbalFunctionalTest
         $this->assertInternalType('array',  $columns['test']->getPlatformOptions());
 
         $this->assertEquals('foo',  strtolower($columns['foo']->getname()));
+        $this->assertEquals(2, array_search('foo', $columnsKeys));
         $this->assertInstanceOf('Doctrine\DBAL\Types\TextType', $columns['foo']->gettype());
         $this->assertEquals(false,  $columns['foo']->getunsigned());
         $this->assertEquals(false,  $columns['foo']->getfixed());
@@ -218,6 +230,7 @@ class SchemaManagerFunctionalTestCase extends \Doctrine\Tests\DbalFunctionalTest
         $this->assertInternalType('array',  $columns['foo']->getPlatformOptions());
 
         $this->assertEquals('bar',  strtolower($columns['bar']->getname()));
+        $this->assertEquals(3, array_search('bar', $columnsKeys));
         $this->assertInstanceOf('Doctrine\DBAL\Types\DecimalType', $columns['bar']->gettype());
         $this->assertEquals(null,   $columns['bar']->getlength());
         $this->assertEquals(10,     $columns['bar']->getprecision());
@@ -229,19 +242,22 @@ class SchemaManagerFunctionalTestCase extends \Doctrine\Tests\DbalFunctionalTest
         $this->assertInternalType('array',  $columns['bar']->getPlatformOptions());
 
         $this->assertEquals('baz1', strtolower($columns['baz1']->getname()));
+        $this->assertEquals(4, array_search('baz1', $columnsKeys));
         $this->assertInstanceOf('Doctrine\DBAL\Types\DateTimeType', $columns['baz1']->gettype());
         $this->assertEquals(true,   $columns['baz1']->getnotnull());
         $this->assertEquals(null,   $columns['baz1']->getdefault());
         $this->assertInternalType('array',  $columns['baz1']->getPlatformOptions());
 
         $this->assertEquals('baz2', strtolower($columns['baz2']->getname()));
+        $this->assertEquals(5, array_search('baz2', $columnsKeys));
         $this->assertContains($columns['baz2']->gettype()->getName(), array('time', 'date', 'datetime'));
         $this->assertEquals(true,   $columns['baz2']->getnotnull());
         $this->assertEquals(null,   $columns['baz2']->getdefault());
         $this->assertInternalType('array',  $columns['baz2']->getPlatformOptions());
 
         $this->assertEquals('baz3', strtolower($columns['baz3']->getname()));
-        $this->assertContains($columns['baz2']->gettype()->getName(), array('time', 'date', 'datetime'));
+        $this->assertEquals(6, array_search('baz3', $columnsKeys));
+        $this->assertContains($columns['baz3']->gettype()->getName(), array('time', 'date', 'datetime'));
         $this->assertEquals(true,   $columns['baz3']->getnotnull());
         $this->assertEquals(null,   $columns['baz3']->getdefault());
         $this->assertInternalType('array',  $columns['baz3']->getPlatformOptions());
@@ -273,7 +289,10 @@ class SchemaManagerFunctionalTestCase extends \Doctrine\Tests\DbalFunctionalTest
 
         $this->_sm->dropAndCreateTable($table);
 
-        $listenerMock = $this->getMock('ListTableColumnsDispatchEventListener', array('onSchemaColumnDefinition'));
+        $listenerMock = $this
+            ->getMockBuilder('ListTableColumnsDispatchEventListener')
+            ->setMethods(['onSchemaColumnDefinition'])
+            ->getMock();
         $listenerMock
             ->expects($this->exactly(7))
             ->method('onSchemaColumnDefinition');
@@ -298,7 +317,10 @@ class SchemaManagerFunctionalTestCase extends \Doctrine\Tests\DbalFunctionalTest
 
         $this->_sm->dropAndCreateTable($table);
 
-        $listenerMock = $this->getMock('ListTableIndexesDispatchEventListener', array('onSchemaIndexDefinition'));
+        $listenerMock = $this
+            ->getMockBuilder('ListTableIndexesDispatchEventListener')
+            ->setMethods(['onSchemaIndexDefinition'])
+            ->getMock();
         $listenerMock
             ->expects($this->exactly(3))
             ->method('onSchemaIndexDefinition');
@@ -691,6 +713,7 @@ class SchemaManagerFunctionalTestCase extends \Doctrine\Tests\DbalFunctionalTest
         $this->assertEquals('This is a comment', $columns['id']->getComment());
 
         $tableDiff = new \Doctrine\DBAL\Schema\TableDiff('column_comment_test');
+        $tableDiff->fromTable = $table;
         $tableDiff->changedColumns['id'] = new \Doctrine\DBAL\Schema\ColumnDiff(
             'id', new \Doctrine\DBAL\Schema\Column(
                 'id', \Doctrine\DBAL\Types\Type::getType('integer'), array('primary' => true)
@@ -1025,6 +1048,28 @@ class SchemaManagerFunctionalTestCase extends \Doctrine\Tests\DbalFunctionalTest
         $this->assertEquals("It's a comment with a quote", $columns['id']->getComment());
     }
 
+    public function testCommentNotDuplicated()
+    {
+        if ( ! $this->_conn->getDatabasePlatform()->supportsInlineColumnComments()) {
+            $this->markTestSkipped('Database does not support column comments.');
+        }
+
+        $options = array(
+            'type' => Type::getType('integer'),
+            'default' => 0,
+            'notnull' => true,
+            'comment' => 'expected+column+comment',
+        );
+        $columnDefinition = substr($this->_conn->getDatabasePlatform()->getColumnDeclarationSQL('id', $options), strlen('id') + 1);
+
+        $table = new Table('my_table');
+        $table->addColumn('id', 'integer', array('columnDefinition' => $columnDefinition, 'comment' => 'unexpected_column_comment'));
+        $sql = $this->_conn->getDatabasePlatform()->getCreateTableSQL($table);
+
+        $this->assertContains('expected+column+comment', $sql[0]);
+        $this->assertNotContains('unexpected_column_comment', $sql[0]);
+    }
+
     /**
      * @group DBAL-1009
      *
@@ -1043,7 +1088,6 @@ class SchemaManagerFunctionalTestCase extends \Doctrine\Tests\DbalFunctionalTest
         $offlineTable->addColumn('comment2', 'integer', array('comment' => $comment2));
         $offlineTable->addColumn('no_comment1', 'integer');
         $offlineTable->addColumn('no_comment2', 'integer');
-
         $this->_sm->dropAndCreateTable($offlineTable);
 
         $onlineTable = $this->_sm->listTableDetails("alter_column_comment_test");
@@ -1101,24 +1145,192 @@ class SchemaManagerFunctionalTestCase extends \Doctrine\Tests\DbalFunctionalTest
             $this->markTestSkipped('This test is only supported on platforms that have foreign keys.');
         }
 
-        $primaryTable = new Table('test_list_index_implicit_primary');
+        $primaryTable = new Table('test_list_index_impl_primary');
         $primaryTable->addColumn('id', 'integer');
         $primaryTable->setPrimaryKey(array('id'));
 
-        $foreignTable = new Table('test_list_index_implicit_foreign');
+        $foreignTable = new Table('test_list_index_impl_foreign');
         $foreignTable->addColumn('fk1', 'integer');
         $foreignTable->addColumn('fk2', 'integer');
         $foreignTable->addIndex(array('fk1'), 'explicit_fk1_idx');
-        $foreignTable->addForeignKeyConstraint('test_list_index_implicit_primary', array('fk1'), array('id'));
-        $foreignTable->addForeignKeyConstraint('test_list_index_implicit_primary', array('fk2'), array('id'));
+        $foreignTable->addForeignKeyConstraint('test_list_index_impl_primary', array('fk1'), array('id'));
+        $foreignTable->addForeignKeyConstraint('test_list_index_impl_primary', array('fk2'), array('id'));
 
         $this->_sm->dropAndCreateTable($primaryTable);
         $this->_sm->dropAndCreateTable($foreignTable);
 
-        $indexes = $this->_sm->listTableIndexes('test_list_index_implicit_foreign');
+        $indexes = $this->_sm->listTableIndexes('test_list_index_impl_foreign');
 
         $this->assertCount(2, $indexes);
         $this->assertArrayHasKey('explicit_fk1_idx', $indexes);
-        $this->assertArrayHasKey('idx_6d88c7b4fdc58d6c', $indexes);
+        $this->assertArrayHasKey('idx_3d6c147fdc58d6c', $indexes);
+    }
+
+    /**
+     * @after
+     */
+    public function removeJsonArrayTable() : void
+    {
+        if ($this->_sm->tablesExist(['json_array_test'])) {
+            $this->_sm->dropTable('json_array_test');
+        }
+    }
+
+    /**
+     * @group 2782
+     * @group 6654
+     */
+    public function testComparatorShouldReturnFalseWhenLegacyJsonArrayColumnHasComment() : void
+    {
+        $table = new Table('json_array_test');
+        $table->addColumn('parameters', 'json_array');
+
+        $this->_sm->createTable($table);
+
+        $comparator = new Comparator();
+        $tableDiff  = $comparator->diffTable($this->_sm->listTableDetails('json_array_test'), $table);
+
+        self::assertFalse($tableDiff);
+    }
+
+    /**
+     * @group 2782
+     * @group 6654
+     */
+    public function testComparatorShouldModifyOnlyTheCommentWhenUpdatingFromJsonArrayTypeOnLegacyPlatforms() : void
+    {
+        if ($this->_sm->getDatabasePlatform()->hasNativeJsonType()) {
+            $this->markTestSkipped('This test is only supported on platforms that do not have native JSON type.');
+        }
+
+        $table = new Table('json_array_test');
+        $table->addColumn('parameters', 'json_array');
+
+        $this->_sm->createTable($table);
+
+        $table = new Table('json_array_test');
+        $table->addColumn('parameters', 'json');
+
+        $comparator = new Comparator();
+        $tableDiff  = $comparator->diffTable($this->_sm->listTableDetails('json_array_test'), $table);
+
+        self::assertInstanceOf(TableDiff::class, $tableDiff);
+
+        $changedColumn = $tableDiff->changedColumns['parameters'] ?? $tableDiff->changedColumns['PARAMETERS'];
+
+        self::assertSame(['comment'], $changedColumn->changedProperties);
+    }
+
+    /**
+     * @group 2782
+     * @group 6654
+     */
+    public function testComparatorShouldAddCommentToLegacyJsonArrayTypeThatDoesNotHaveIt() : void
+    {
+        if ( ! $this->_sm->getDatabasePlatform()->hasNativeJsonType()) {
+            $this->markTestSkipped('This test is only supported on platforms that have native JSON type.');
+        }
+
+        $this->_conn->executeQuery('CREATE TABLE json_array_test (parameters JSON NOT NULL)');
+
+        $table = new Table('json_array_test');
+        $table->addColumn('parameters', 'json_array');
+
+        $comparator = new Comparator();
+        $tableDiff  = $comparator->diffTable($this->_sm->listTableDetails('json_array_test'), $table);
+
+        self::assertInstanceOf(TableDiff::class, $tableDiff);
+        self::assertSame(['comment'], $tableDiff->changedColumns['parameters']->changedProperties);
+    }
+
+    /**
+     * @group 2782
+     * @group 6654
+     */
+    public function testComparatorShouldReturnAllChangesWhenUsingLegacyJsonArrayType() : void
+    {
+        if ( ! $this->_sm->getDatabasePlatform()->hasNativeJsonType()) {
+            $this->markTestSkipped('This test is only supported on platforms that have native JSON type.');
+        }
+
+        $this->_conn->executeQuery('CREATE TABLE json_array_test (parameters JSON DEFAULT NULL)');
+
+        $table = new Table('json_array_test');
+        $table->addColumn('parameters', 'json_array');
+
+        $comparator = new Comparator();
+        $tableDiff  = $comparator->diffTable($this->_sm->listTableDetails('json_array_test'), $table);
+
+        self::assertInstanceOf(TableDiff::class, $tableDiff);
+        self::assertSame(['notnull', 'comment'], $tableDiff->changedColumns['parameters']->changedProperties);
+    }
+
+    /**
+     * @group 2782
+     * @group 6654
+     */
+    public function testComparatorShouldReturnAllChangesWhenUsingLegacyJsonArrayTypeEvenWhenPlatformHasJsonSupport() : void
+    {
+        if ( ! $this->_sm->getDatabasePlatform()->hasNativeJsonType()) {
+            $this->markTestSkipped('This test is only supported on platforms that have native JSON type.');
+        }
+
+        $this->_conn->executeQuery('CREATE TABLE json_array_test (parameters JSON DEFAULT NULL)');
+
+        $table = new Table('json_array_test');
+        $table->addColumn('parameters', 'json_array');
+
+        $comparator = new Comparator();
+        $tableDiff  = $comparator->diffTable($this->_sm->listTableDetails('json_array_test'), $table);
+
+        self::assertInstanceOf(TableDiff::class, $tableDiff);
+        self::assertSame(['notnull', 'comment'], $tableDiff->changedColumns['parameters']->changedProperties);
+    }
+
+    /**
+     * @group 2782
+     * @group 6654
+     */
+    public function testComparatorShouldNotAddCommentToJsonTypeSinceItIsTheDefaultNow() : void
+    {
+        if ( ! $this->_sm->getDatabasePlatform()->hasNativeJsonType()) {
+            $this->markTestSkipped('This test is only supported on platforms that have native JSON type.');
+        }
+
+        $this->_conn->executeQuery('CREATE TABLE json_test (parameters JSON NOT NULL)');
+
+        $table = new Table('json_test');
+        $table->addColumn('parameters', 'json');
+
+        $comparator = new Comparator();
+        $tableDiff  = $comparator->diffTable($this->_sm->listTableDetails('json_test'), $table);
+
+        self::assertFalse($tableDiff);
+    }
+
+    /**
+     * @dataProvider commentsProvider
+     *
+     * @group 2596
+     */
+    public function testExtractDoctrineTypeFromComment(string $comment, string $expected, string $currentType) : void
+    {
+        $result = $this->_sm->extractDoctrineTypeFromComment($comment, $currentType);
+
+        self::assertSame($expected, $result);
+    }
+
+    public function commentsProvider() : array
+    {
+        $currentType = 'current type';
+
+        return [
+            'invalid custom type comments'      => ['should.return.current.type', $currentType, $currentType],
+            'valid doctrine type'               => ['(DC2Type:guid)', 'guid', $currentType],
+            'valid with dots'                   => ['(DC2Type:type.should.return)', 'type.should.return', $currentType],
+            'valid with namespace'              => ['(DC2Type:Namespace\Class)', 'Namespace\Class', $currentType],
+            'valid with extra closing bracket'  => ['(DC2Type:should.stop)).before)', 'should.stop', $currentType],
+            'valid with extra opening brackets' => ['(DC2Type:should((.stop)).before)', 'should((.stop', $currentType],
+        ];
     }
 }

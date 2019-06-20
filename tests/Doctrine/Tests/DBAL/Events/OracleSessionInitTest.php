@@ -11,7 +11,7 @@ class OracleSessionInitTest extends DbalTestCase
 {
     public function testPostConnect()
     {
-        $connectionMock = $this->getMock('Doctrine\DBAL\Connection', array(), array(), '', false);
+        $connectionMock = $this->createMock('Doctrine\DBAL\Connection');
         $connectionMock->expects($this->once())
                        ->method('executeUpdate')
                        ->with($this->isType('string'));
@@ -21,6 +21,34 @@ class OracleSessionInitTest extends DbalTestCase
 
         $listener = new OracleSessionInit();
         $listener->postConnect($eventArgs);
+    }
+
+    /**
+     * @group DBAL-1824
+     *
+     * @dataProvider getPostConnectWithSessionParameterValuesData
+     */
+    public function testPostConnectQuotesSessionParameterValues($name, $value)
+    {
+        $connectionMock = $this->getMockBuilder('Doctrine\DBAL\Connection')
+            ->disableOriginalConstructor()
+            ->getMock();
+        $connectionMock->expects($this->once())
+            ->method('executeUpdate')
+            ->with($this->stringContains(sprintf('%s = %s', $name, $value)));
+
+        $eventArgs = new ConnectionEventArgs($connectionMock);
+
+
+        $listener = new OracleSessionInit(array($name => $value));
+        $listener->postConnect($eventArgs);
+    }
+
+    public function getPostConnectWithSessionParameterValuesData()
+    {
+        return array(
+            array('CURRENT_SCHEMA', 'foo'),
+        );
     }
 
     public function testGetSubscribedEvents()

@@ -19,13 +19,13 @@
 
 namespace Doctrine\DBAL\Platforms;
 
+use Doctrine\DBAL\DBALException;
 use Doctrine\DBAL\Schema\ForeignKeyConstraint;
 use Doctrine\DBAL\Schema\Identifier;
 use Doctrine\DBAL\Schema\Index;
 use Doctrine\DBAL\Schema\Sequence;
 use Doctrine\DBAL\Schema\Table;
 use Doctrine\DBAL\Schema\TableDiff;
-use Doctrine\DBAL\DBALException;
 use Doctrine\DBAL\Types\BinaryType;
 
 /**
@@ -375,9 +375,10 @@ class OraclePlatform extends AbstractPlatform
     public function getListSequencesSQL($database)
     {
         $database = $this->normalizeIdentifier($database);
+        $database = $this->quoteStringLiteral($database->getName());
 
         return "SELECT sequence_name, min_value, increment_by FROM sys.all_sequences ".
-               "WHERE SEQUENCE_OWNER = '" . $database->getName() . "'";
+               "WHERE SEQUENCE_OWNER = " . $database;
     }
 
     /**
@@ -418,6 +419,7 @@ class OraclePlatform extends AbstractPlatform
     public function getListTableIndexesSQL($table, $currentDatabase = null)
     {
         $table = $this->normalizeIdentifier($table);
+        $table = $this->quoteStringLiteral($table->getName());
 
         return "SELECT uind_col.index_name AS name,
                        (
@@ -441,10 +443,10 @@ class OraclePlatform extends AbstractPlatform
                        (
                            SELECT ucon.constraint_type
                            FROM   user_constraints ucon
-                           WHERE  ucon.constraint_name = uind_col.index_name
+                           WHERE  ucon.index_name = uind_col.index_name
                        ) AS is_primary
              FROM      user_ind_columns uind_col
-             WHERE     uind_col.table_name = '" . $table->getName() . "'
+             WHERE     uind_col.table_name = " . $table . "
              ORDER BY  uind_col.column_position ASC";
     }
 
@@ -608,7 +610,8 @@ END;';
      */
     public function getListTableForeignKeysSQL($table)
     {
-        $table = $table = $this->normalizeIdentifier($table);
+        $table = $this->normalizeIdentifier($table);
+        $table = $this->quoteStringLiteral($table->getName());
 
         return "SELECT alc.constraint_name,
           alc.DELETE_RULE,
@@ -630,7 +633,7 @@ END;';
      JOIN user_constraints alc
        ON alc.constraint_name = cols.constraint_name
       AND alc.constraint_type = 'R'
-      AND alc.table_name = '" . $table->getName() . "'
+      AND alc.table_name = " . $table . "
     ORDER BY cols.constraint_name ASC, cols.position ASC";
     }
 
@@ -640,8 +643,9 @@ END;';
     public function getListTableConstraintsSQL($table)
     {
         $table = $this->normalizeIdentifier($table);
+        $table = $this->quoteStringLiteral($table->getName());
 
-        return "SELECT * FROM user_constraints WHERE table_name = '" . $table->getName() . "'";
+        return "SELECT * FROM user_constraints WHERE table_name = " . $table;
     }
 
     /**
@@ -650,28 +654,32 @@ END;';
     public function getListTableColumnsSQL($table, $database = null)
     {
         $table = $this->normalizeIdentifier($table);
+        $table = $this->quoteStringLiteral($table->getName());
 
         $tabColumnsTableName = "user_tab_columns";
         $colCommentsTableName = "user_col_comments";
-        $ownerCondition = '';
+        $tabColumnsOwnerCondition = '';
+        $colCommentsOwnerCondition = '';
 
-        if (null !== $database) {
+        if (null !== $database && '/' !== $database) {
             $database = $this->normalizeIdentifier($database);
+            $database = $this->quoteStringLiteral($database->getName());
             $tabColumnsTableName = "all_tab_columns";
             $colCommentsTableName = "all_col_comments";
-            $ownerCondition = "AND c.owner = '" . $database->getName() . "'";
+            $tabColumnsOwnerCondition = "AND c.owner = " . $database;
+            $colCommentsOwnerCondition = "AND d.OWNER = c.OWNER";
         }
 
         return "SELECT   c.*,
                          (
                              SELECT d.comments
                              FROM   $colCommentsTableName d
-                             WHERE  d.TABLE_NAME = c.TABLE_NAME
+                             WHERE  d.TABLE_NAME = c.TABLE_NAME " . $colCommentsOwnerCondition . "
                              AND    d.COLUMN_NAME = c.COLUMN_NAME
                          ) AS comments
                 FROM     $tabColumnsTableName c
-                WHERE    c.table_name = '" . $table->getName() . "' $ownerCondition
-                ORDER BY c.column_name";
+                WHERE    c.table_name = " . $table . " $tabColumnsOwnerCondition
+                ORDER BY c.column_id";
     }
 
     /**
@@ -691,13 +699,16 @@ END;';
      */
     public function getDropForeignKeySQL($foreignKey, $table)
     {
-        if ($foreignKey instanceof ForeignKeyConstraint) {
-            $foreignKey = $foreignKey->getQuotedName($this);
+        if (! $foreignKey instanceof ForeignKeyConstraint) {
+            $foreignKey = new Identifier($foreignKey);
         }
 
-        if ($table instanceof Table) {
-            $table = $table->getQuotedName($this);
+        if (! $table instanceof Table) {
+            $table = new Identifier($table);
         }
+
+        $foreignKey = $foreignKey->getQuotedName($this);
+        $table = $table->getQuotedName($this);
 
         return 'ALTER TABLE ' . $table . ' DROP CONSTRAINT ' . $foreignKey;
     }
@@ -966,24 +977,29 @@ END;';
      */
     protected function doModifyLimitQuery($query, $limit, $offset = null)
     {
-        $limit = (int) $limit;
-        $offset = (int) $offset;
+        if ($limit === null && $offset === null) {
+            return $query;
+        }
 
         if (preg_match('/^\s*SELECT/i', $query)) {
             if (!preg_match('/\sFROM\s/i', $query)) {
                 $query .= " FROM dual";
             }
-            if ($limit > 0) {
-                $max = $offset + $limit;
-                $column = '*';
-                if ($offset > 0) {
-                    $min = $offset + 1;
-                    $query = 'SELECT * FROM (SELECT a.' . $column . ', rownum AS doctrine_rownum FROM (' .
-                            $query .
-                            ') a WHERE rownum <= ' . $max . ') WHERE doctrine_rownum >= ' . $min;
-                } else {
-                    $query = 'SELECT a.' . $column . ' FROM (' . $query . ') a WHERE ROWNUM <= ' . $max;
-                }
+
+            $columns = array('a.*');
+
+            if ($offset > 0) {
+                $columns[] = 'ROWNUM AS doctrine_rownum';
+            }
+
+            $query = sprintf('SELECT %s FROM (%s) a', implode(', ', $columns), $query);
+
+            if ($limit !== null) {
+                $query .= sprintf(' WHERE ROWNUM <= %d', $offset + $limit);
+            }
+
+            if ($offset > 0) {
+                $query = sprintf('SELECT * FROM (%s) WHERE doctrine_rownum >= %d', $query, $offset + 1);
             }
         }
 
@@ -1082,7 +1098,9 @@ END;';
      */
     public function getTruncateTableSQL($tableName, $cascade = false)
     {
-        return 'TRUNCATE TABLE '.$tableName;
+        $tableIdentifier = new Identifier($tableName);
+
+        return 'TRUNCATE TABLE ' . $tableIdentifier->getQuotedName($this);
     }
 
     /**
@@ -1108,7 +1126,7 @@ END;';
             'nvarchar2'         => 'string',
             'char'              => 'string',
             'nchar'             => 'string',
-            'date'              => 'datetime',
+            'date'              => 'date',
             'timestamp'         => 'datetime',
             'timestamptz'       => 'datetimetz',
             'float'             => 'float',
@@ -1138,7 +1156,7 @@ END;';
      */
     protected function getReservedKeywordsClass()
     {
-        return 'Doctrine\DBAL\Platforms\Keywords\OracleKeywords';
+        return Keywords\OracleKeywords::class;
     }
 
     /**
@@ -1147,5 +1165,15 @@ END;';
     public function getBlobTypeDeclarationSQL(array $field)
     {
         return 'BLOB';
+    }
+
+    /**
+     * {@inheritdoc}
+     */
+    public function quoteStringLiteral($str)
+    {
+        $str = str_replace('\\', '\\\\', $str); // Oracle requires backslashes to be escaped aswell.
+
+        return parent::quoteStringLiteral($str);
     }
 }

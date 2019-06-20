@@ -8,7 +8,7 @@ class TypeConversionTest extends \Doctrine\Tests\DbalFunctionalTestCase
 {
     static private $typeCounter = 0;
 
-    public function setUp()
+    protected function setUp()
     {
         parent::setUp();
 
@@ -34,9 +34,7 @@ class TypeConversionTest extends \Doctrine\Tests\DbalFunctionalTestCase
         $table->setPrimaryKey(array('id'));
 
         try {
-            foreach ($this->_conn->getDatabasePlatform()->getCreateTableSQL($table) as $sql) {
-                $this->_conn->executeQuery($sql);
-            }
+            $this->_conn->getSchemaManager()->createTable($table);
         } catch(\Exception $e) {
 
         }

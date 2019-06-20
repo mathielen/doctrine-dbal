@@ -18,7 +18,7 @@ class AbstractPostgreSQLDriverTest extends AbstractDriverTest
             'password' => 'bar',
         );
 
-        $statement = $this->getMock('Doctrine\Tests\Mocks\DriverResultStatementMock');
+        $statement = $this->createMock('Doctrine\Tests\Mocks\DriverResultStatementMock');
 
         $statement->expects($this->once())
             ->method('fetchColumn')
@@ -100,6 +100,10 @@ class AbstractPostgreSQLDriverTest extends AbstractDriverTest
             ),
             self::EXCEPTION_UNIQUE_CONSTRAINT_VIOLATION => array(
                 array(null, '23505', null),
+            ),
+            self::EXCEPTION_DEADLOCK => array(
+                array(null, '40001', null),
+                array(null, '40P01', null),
             ),
         );
     }
